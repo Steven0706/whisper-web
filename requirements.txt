@@ -1,0 +1,18 @@
+# Core dependencies
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+python-multipart==0.0.20
+aiofiles==24.1.0
+
+# Whisper and AI
+openai-whisper==20231117
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Audio processing
+numpy==1.24.3
+scipy==1.11.4
+soundfile==0.12.1
+
+# Utilities
+python-dotenv==1.0.0

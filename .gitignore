@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Data directories
+uploads/*
+transcriptions/*
+recorded_audio/*
+!uploads/.gitkeep
+!transcriptions/.gitkeep
+!recorded_audio/.gitkeep
+*.wav
+*.mp3
+*.webm
+*.m4a
+*.ogg
+*.flac
+
+# Logs
+*.log
+*.error.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# SSL certificates
+*.pem
+*.key
+*.crt
+
+# Model cache
+.cache/
+models/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Personal config
+config.py.local
+personal_config.py
