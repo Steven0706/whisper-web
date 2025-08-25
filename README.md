@@ -11,6 +11,9 @@ A high-performance, self-hosted speech-to-text service powered by OpenAI's Whisp
 
 ![Demo](docs/demo.gif)
 
+<img width="1535" height="1260" alt="image" src="https://github.com/user-attachments/assets/8386fc89-1873-451a-914c-c0bba73dabeb" />
+
+
 ## ✨ Features
 
 - 🚀 **GPU Acceleration** - CUDA support for 10x faster transcription
