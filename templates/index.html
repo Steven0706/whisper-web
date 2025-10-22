@@ -10,28 +10,56 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1419 100%);
             min-height: 100vh;
             padding: 10px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Animated background grid */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                linear-gradient(rgba(0, 255, 65, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 65, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 0;
         }
         
         .container {
             max-width: 1000px;
             margin: 0 auto;
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(10, 15, 35, 0.85);
             border-radius: 20px;
             padding: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            box-shadow: 0 0 50px rgba(0, 255, 65, 0.2), 0 0 100px rgba(255, 235, 59, 0.1);
+            border: 1px solid rgba(0, 255, 65, 0.3);
+            position: relative;
+            z-index: 1;
+            backdrop-filter: blur(10px);
         }
-        
+
         h1 {
             text-align: center;
-            color: #333;
+            background: linear-gradient(90deg, #00ff41 0%, #ffeb3b 50%, #00ff41 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
             margin-bottom: 10px;
             font-size: 1.8em;
+            font-weight: bold;
+            text-shadow: 0 0 30px rgba(0, 255, 65, 0.5);
+            letter-spacing: 2px;
         }
         
         .status-bar {
@@ -40,33 +68,43 @@
             gap: 20px;
             margin-bottom: 15px;
             padding: 8px;
-            background: #f8f9fa;
+            background: rgba(0, 255, 65, 0.05);
             border-radius: 10px;
             font-size: 0.85em;
+            border: 1px solid rgba(0, 255, 65, 0.2);
         }
-        
+
         .status-item {
             display: flex;
             align-items: center;
             gap: 5px;
-            color: #666;
+            color: #00ff41;
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
         }
-        
+
         .status-indicator {
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: #dc3545;
+            background: #ff4444;
+            box-shadow: 0 0 10px #ff4444;
         }
-        
+
         .status-indicator.online {
-            background: #28a745;
+            background: #00ff41;
             animation: pulse 2s infinite;
+            box-shadow: 0 0 15px #00ff41, 0 0 30px #00ff41;
         }
-        
+
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            0%, 100% {
+                opacity: 1;
+                box-shadow: 0 0 15px #00ff41, 0 0 30px #00ff41;
+            }
+            50% {
+                opacity: 0.6;
+                box-shadow: 0 0 5px #00ff41, 0 0 10px #00ff41;
+            }
         }
         
         /* Compact controls in one row */
@@ -75,19 +113,20 @@
             align-items: center;
             gap: 10px;
             padding: 12px;
-            background: #f8f9fa;
+            background: rgba(0, 255, 65, 0.05);
             border-radius: 10px;
             margin-bottom: 15px;
             flex-wrap: wrap;
+            border: 1px solid rgba(0, 255, 65, 0.2);
         }
-        
+
         .record-btn {
             width: 50px;
             height: 50px;
             border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            color: white;
+            background: linear-gradient(135deg, #00ff41 0%, #ffeb3b 100%);
+            border: 2px solid #00ff41;
+            color: #0a0e27;
             font-size: 22px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -95,66 +134,81 @@
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.4);
         }
-        
+
         .record-btn:hover:not(:disabled) {
             transform: scale(1.1);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 0 30px rgba(0, 255, 65, 0.8), 0 0 50px rgba(255, 235, 59, 0.4);
         }
-        
+
         .record-btn:disabled {
-            opacity: 0.5;
+            opacity: 0.3;
             cursor: not-allowed;
+            box-shadow: none;
         }
-        
+
         .record-btn.recording {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            background: linear-gradient(135deg, #ff4444 0%, #ffeb3b 100%);
+            border-color: #ff4444;
             animation: recording-pulse 1.5s infinite;
         }
-        
+
         @keyframes recording-pulse {
-            0% { box-shadow: 0 0 0 0 rgba(245, 87, 108, 0.7); }
-            70% { box-shadow: 0 0 0 15px rgba(245, 87, 108, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(245, 87, 108, 0); }
+            0% {
+                box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.7), 0 0 20px rgba(255, 68, 68, 0.5);
+            }
+            70% {
+                box-shadow: 0 0 0 15px rgba(255, 68, 68, 0), 0 0 40px rgba(255, 68, 68, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(255, 68, 68, 0), 0 0 20px rgba(255, 68, 68, 0.5);
+            }
         }
         
         .recording-time {
             font-weight: 600;
-            color: #f5576c;
+            color: #ff4444;
             display: none;
             font-size: 0.9em;
+            text-shadow: 0 0 10px rgba(255, 68, 68, 0.8);
         }
-        
+
         .recording-time.active {
             display: block;
         }
-        
+
         .divider {
             width: 1px;
             height: 30px;
-            background: #ddd;
+            background: rgba(0, 255, 65, 0.3);
             margin: 0 5px;
+            box-shadow: 0 0 5px rgba(0, 255, 65, 0.5);
         }
-        
+
         .upload-btn {
             padding: 8px 16px;
-            background: #6c757d;
-            color: white;
-            border: none;
+            background: rgba(0, 255, 65, 0.1);
+            color: #00ff41;
+            border: 1px solid #00ff41;
             border-radius: 6px;
             cursor: pointer;
             font-size: 0.9em;
             transition: all 0.3s ease;
             height: 36px;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
         }
-        
+
         .upload-btn:hover:not(:disabled) {
-            background: #5a6268;
+            background: rgba(0, 255, 65, 0.2);
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.6);
+            transform: translateY(-2px);
         }
-        
+
         .upload-btn:disabled {
-            opacity: 0.5;
+            opacity: 0.3;
             cursor: not-allowed;
+            box-shadow: none;
         }
         
         .option-group {
@@ -162,20 +216,33 @@
             align-items: center;
             gap: 5px;
         }
-        
+
         .option-group label {
             font-size: 0.85em;
-            color: #666;
+            color: #00ff41;
+            text-shadow: 0 0 5px rgba(0, 255, 65, 0.5);
         }
-        
+
         .option-group select {
             padding: 6px 10px;
-            border: 1px solid #ddd;
+            border: 1px solid #00ff41;
             border-radius: 5px;
             font-size: 0.85em;
-            background: white;
+            background: rgba(0, 20, 10, 0.8);
+            color: #00ff41;
             cursor: pointer;
             height: 36px;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
+        }
+
+        .option-group select:hover {
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.4);
+        }
+
+        .option-group select option {
+            background: #0a0e27;
+            color: #00ff41;
         }
         
         .spacer {
@@ -201,101 +268,126 @@
         }
         
         .result-header h2 {
-            color: #333;
+            color: #ffeb3b;
             font-size: 1.2em;
+            text-shadow: 0 0 15px rgba(255, 235, 59, 0.6);
         }
-        
+
         .result-actions {
             display: flex;
             gap: 8px;
         }
-        
+
         .action-btn {
             padding: 6px 12px;
-            border: none;
+            border: 1px solid;
             border-radius: 5px;
             cursor: pointer;
             font-size: 0.85em;
             transition: all 0.3s ease;
+            font-weight: 500;
         }
-        
+
         .copy-btn {
-            background: #28a745;
-            color: white;
+            background: rgba(0, 255, 65, 0.1);
+            color: #00ff41;
+            border-color: #00ff41;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
         }
-        
+
         .copy-btn:hover {
-            background: #218838;
+            background: rgba(0, 255, 65, 0.2);
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.6);
+            transform: translateY(-2px);
         }
-        
+
         .copy-btn.copied {
-            background: #17a2b8;
+            background: rgba(255, 235, 59, 0.2);
+            color: #ffeb3b;
+            border-color: #ffeb3b;
+            box-shadow: 0 0 20px rgba(255, 235, 59, 0.6);
         }
-        
+
         .clear-btn {
-            background: #dc3545;
-            color: white;
+            background: rgba(255, 68, 68, 0.1);
+            color: #ff4444;
+            border-color: #ff4444;
+            box-shadow: 0 0 10px rgba(255, 68, 68, 0.3);
         }
-        
+
         .clear-btn:hover {
-            background: #c82333;
+            background: rgba(255, 68, 68, 0.2);
+            box-shadow: 0 0 20px rgba(255, 68, 68, 0.6);
+            transform: translateY(-2px);
         }
         
         .result-text {
             width: 100%;
             min-height: 300px;
             padding: 15px;
-            border: 2px solid #e0e0e0;
+            border: 1px solid rgba(0, 255, 65, 0.4);
             border-radius: 10px;
             font-size: 15px;
             line-height: 1.6;
             resize: vertical;
-            background: white;
-            font-family: inherit;
+            background: rgba(0, 20, 10, 0.5);
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            color: #00ff41;
+            box-shadow: inset 0 0 20px rgba(0, 255, 65, 0.1), 0 0 15px rgba(0, 255, 65, 0.2);
+            transition: all 0.3s ease;
         }
-        
+
         .result-text:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #00ff41;
+            box-shadow: inset 0 0 30px rgba(0, 255, 65, 0.2), 0 0 25px rgba(0, 255, 65, 0.4);
+        }
+
+        .result-text::placeholder {
+            color: rgba(0, 255, 65, 0.3);
         }
         
         /* Processing indicator */
         .processing {
             text-align: center;
             padding: 15px;
-            color: #667eea;
+            color: #ffeb3b;
             display: none;
+            text-shadow: 0 0 15px rgba(255, 235, 59, 0.8);
         }
-        
+
         .processing.active {
             display: block;
         }
-        
+
         .spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #667eea;
+            border: 3px solid rgba(0, 255, 65, 0.1);
+            border-top: 3px solid #00ff41;
             border-radius: 50%;
             width: 30px;
             height: 30px;
             animation: spin 1s linear infinite;
             margin: 10px auto;
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.5);
         }
-        
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
+
         /* Error message */
         .error-message {
-            background: #f8d7da;
-            color: #721c24;
+            background: rgba(255, 68, 68, 0.1);
+            color: #ff4444;
             padding: 10px;
             border-radius: 5px;
             margin-bottom: 15px;
             display: none;
+            border: 1px solid rgba(255, 68, 68, 0.4);
+            box-shadow: 0 0 15px rgba(255, 68, 68, 0.3);
         }
-        
+
         .error-message.active {
             display: block;
         }
@@ -313,42 +405,68 @@
         }
         
         .history-header h2 {
-            color: #333;
+            color: #ffeb3b;
             font-size: 1.1em;
+            text-shadow: 0 0 15px rgba(255, 235, 59, 0.6);
         }
-        
+
         .history-list {
-            max-height: 250px;
+            max-height: 800px;
             overflow-y: auto;
-            border: 1px solid #e0e0e0;
+            border: 1px solid rgba(0, 255, 65, 0.3);
             border-radius: 10px;
             padding: 10px;
-            background: #f8f9fa;
+            background: rgba(0, 20, 10, 0.3);
+            box-shadow: inset 0 0 20px rgba(0, 255, 65, 0.05);
         }
-        
+
+        /* Custom scrollbar */
+        .history-list::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .history-list::-webkit-scrollbar-track {
+            background: rgba(0, 20, 10, 0.5);
+            border-radius: 4px;
+        }
+
+        .history-list::-webkit-scrollbar-thumb {
+            background: rgba(0, 255, 65, 0.3);
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+        }
+
+        .history-list::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 255, 65, 0.5);
+        }
+
         .history-item {
             padding: 10px;
             margin-bottom: 8px;
-            background: white;
+            background: rgba(0, 255, 65, 0.05);
             border-radius: 5px;
             cursor: pointer;
             transition: all 0.2s ease;
+            border: 1px solid rgba(0, 255, 65, 0.2);
         }
-        
+
         .history-item:hover {
-            background: #e9ecef;
+            background: rgba(0, 255, 65, 0.1);
             transform: translateX(5px);
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.3);
+            border-color: #00ff41;
         }
-        
+
         .history-time {
             font-size: 0.75em;
-            color: #666;
+            color: #ffeb3b;
             margin-bottom: 5px;
+            text-shadow: 0 0 5px rgba(255, 235, 59, 0.5);
         }
-        
+
         .history-text {
             font-size: 0.9em;
-            color: #333;
+            color: #00ff41;
             overflow: hidden;
             text-overflow: ellipsis;
             display: -webkit-box;
@@ -396,16 +514,16 @@
 </head>
 <body>
     <!-- Password Modal -->
-    <div id="passwordModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
-        <div style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; width: 90%;">
-            <h3 style="margin-top: 0; color: #333;">🔒 Enter Password</h3>
-            <p style="color: #666; margin-bottom: 20px;">Password required to view transcription history</p>
-            <input type="password" id="passwordInput" placeholder="Enter password" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 15px; box-sizing: border-box;">
+    <div id="passwordModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
+        <div style="background: rgba(10, 15, 35, 0.95); padding: 30px; border-radius: 15px; box-shadow: 0 0 50px rgba(0, 255, 65, 0.4), 0 0 100px rgba(255, 235, 59, 0.2); max-width: 400px; width: 90%; border: 2px solid rgba(0, 255, 65, 0.4);">
+            <h3 style="margin-top: 0; color: #ffeb3b; text-shadow: 0 0 20px rgba(255, 235, 59, 0.8); text-align: center; font-size: 1.5em;">🔒 AUTHENTICATION</h3>
+            <p style="color: #00ff41; margin-bottom: 20px; text-align: center; text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);">ACCESS CODE REQUIRED</p>
+            <input type="password" id="passwordInput" placeholder="Enter access code" style="width: 100%; padding: 12px; border: 2px solid #00ff41; border-radius: 5px; margin-bottom: 15px; box-sizing: border-box; background: rgba(0, 20, 10, 0.8); color: #00ff41; font-family: 'Consolas', monospace; font-size: 1.1em; box-shadow: inset 0 0 10px rgba(0, 255, 65, 0.2), 0 0 15px rgba(0, 255, 65, 0.3);">
             <div style="display: flex; gap: 10px;">
-                <button onclick="submitPassword()" style="flex: 1; padding: 10px; background: #667eea; border: none; border-radius: 5px; color: white; cursor: pointer;">Submit</button>
-                <button onclick="closePasswordModal()" style="flex: 1; padding: 10px; background: #6c757d; border: none; border-radius: 5px; color: white; cursor: pointer;">Cancel</button>
+                <button onclick="submitPassword()" style="flex: 1; padding: 12px; background: rgba(0, 255, 65, 0.2); border: 2px solid #00ff41; border-radius: 5px; color: #00ff41; cursor: pointer; font-weight: bold; transition: all 0.3s; box-shadow: 0 0 15px rgba(0, 255, 65, 0.3);" onmouseover="this.style.background='rgba(0, 255, 65, 0.3)'; this.style.boxShadow='0 0 25px rgba(0, 255, 65, 0.6)';" onmouseout="this.style.background='rgba(0, 255, 65, 0.2)'; this.style.boxShadow='0 0 15px rgba(0, 255, 65, 0.3)';">SUBMIT</button>
+                <button onclick="closePasswordModal()" style="flex: 1; padding: 12px; background: rgba(255, 68, 68, 0.2); border: 2px solid #ff4444; border-radius: 5px; color: #ff4444; cursor: pointer; font-weight: bold; transition: all 0.3s; box-shadow: 0 0 15px rgba(255, 68, 68, 0.3);" onmouseover="this.style.background='rgba(255, 68, 68, 0.3)'; this.style.boxShadow='0 0 25px rgba(255, 68, 68, 0.6)';" onmouseout="this.style.background='rgba(255, 68, 68, 0.2)'; this.style.boxShadow='0 0 15px rgba(255, 68, 68, 0.3)';">CANCEL</button>
             </div>
-            <div id="passwordError" style="color: #dc3545; margin-top: 10px; display: none;">Invalid password. Please try again.</div>
+            <div id="passwordError" style="color: #ff4444; margin-top: 15px; display: none; text-align: center; padding: 10px; background: rgba(255, 68, 68, 0.1); border-radius: 5px; border: 1px solid rgba(255, 68, 68, 0.3); text-shadow: 0 0 10px rgba(255, 68, 68, 0.8);">ACCESS DENIED - INVALID CODE</div>
         </div>
     </div>
     
@@ -461,10 +579,8 @@
                     <option value="translate">Translate</option>
                 </select>
             </div>
-            
+
             <div class="spacer"></div>
-            
-            <div class="hint">Hold SPACE to record</div>
         </div>
 
         <div class="processing" id="processing">
@@ -478,20 +594,93 @@
             <div class="result-header">
                 <h2>Transcription Result</h2>
                 <div class="result-actions">
+                    <button class="action-btn polish-btn" id="polishBtn" style="background: rgba(255, 235, 59, 0.2); color: #ffeb3b; border-color: #ffeb3b; box-shadow: 0 0 10px rgba(255, 235, 59, 0.3);">✨ Polish by LLM</button>
                     <button class="action-btn copy-btn" id="copyBtn">📋 Copy</button>
                     <button class="action-btn clear-btn" id="clearBtn">🗑️ Clear</button>
                 </div>
             </div>
             <textarea class="result-text" id="resultText" placeholder="Your transcription will appear here..."></textarea>
+            <div id="polishedSection" style="display: none; margin-top: 20px;">
+                <div class="result-header">
+                    <h2>Polished Text</h2>
+                    <div class="result-actions">
+                        <button class="action-btn copy-polished-btn" id="copyPolishedBtn">📋 Copy Polished</button>
+                    </div>
+                </div>
+                <textarea class="result-text" id="polishedText" placeholder="Polished text will appear here..." style="background: rgba(255, 235, 59, 0.05); border-color: rgba(255, 235, 59, 0.4); color: #ffeb3b;"></textarea>
+            </div>
         </div>
 
-        <div class="history-section">
+        <div class="history-section" id="historySection" style="display: none;">
             <div class="history-header">
                 <h2>Recent Transcriptions</h2>
-                <button class="action-btn" id="refreshHistoryBtn" style="background: #6c757d; color: white;">🔄 Refresh</button>
+                <button class="action-btn" id="refreshHistoryBtn" style="background: rgba(255, 235, 59, 0.2); color: #ffeb3b; border-color: #ffeb3b; box-shadow: 0 0 10px rgba(255, 235, 59, 0.3);">🔄 Refresh</button>
             </div>
+
+            <!-- Filter controls -->
+            <div style="background: rgba(0, 255, 65, 0.05); padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; border: 1px solid rgba(0, 255, 65, 0.2);">
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <label style="font-size: 0.85em; color: #ffeb3b; text-shadow: 0 0 5px rgba(255, 235, 59, 0.5);">Time:</label>
+                    <select id="timeFilter" style="padding: 4px 8px; border: 1px solid #00ff41; border-radius: 4px; font-size: 0.85em; background: rgba(0, 20, 10, 0.8); color: #00ff41; box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);">
+                        <option value="all">All Time</option>
+                        <option value="today">Today</option>
+                        <option value="yesterday">Yesterday</option>
+                        <option value="week">Last 7 Days</option>
+                        <option value="month">Last 30 Days</option>
+                    </select>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <label style="font-size: 0.85em; color: #ffeb3b; text-shadow: 0 0 5px rgba(255, 235, 59, 0.5);">Language:</label>
+                    <select id="langFilter" style="padding: 4px 8px; border: 1px solid #00ff41; border-radius: 4px; font-size: 0.85em; background: rgba(0, 20, 10, 0.8); color: #00ff41; box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);">
+                        <option value="all">All Languages</option>
+                        <option value="en">English</option>
+                        <option value="zh">Chinese</option>
+                        <option value="es">Spanish</option>
+                        <option value="fr">French</option>
+                        <option value="de">German</option>
+                        <option value="ja">Japanese</option>
+                        <option value="ko">Korean</option>
+                        <option value="ru">Russian</option>
+                        <option value="ar">Arabic</option>
+                        <option value="hi">Hindi</option>
+                    </select>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <label style="font-size: 0.85em; color: #ffeb3b; text-shadow: 0 0 5px rgba(255, 235, 59, 0.5);">Duration:</label>
+                    <select id="durationFilter" style="padding: 4px 8px; border: 1px solid #00ff41; border-radius: 4px; font-size: 0.85em; background: rgba(0, 20, 10, 0.8); color: #00ff41; box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);">
+                        <option value="all">Any Length</option>
+                        <option value="0-10">0-10s</option>
+                        <option value="10-30">10-30s</option>
+                        <option value="30-60">30-60s</option>
+                        <option value="60-300">1-5min</option>
+                        <option value="300-">5min+</option>
+                    </select>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <label style="font-size: 0.85em; color: #ffeb3b; text-shadow: 0 0 5px rgba(255, 235, 59, 0.5);">Client IP:</label>
+                    <select id="ipFilter" multiple size="1" style="padding: 4px 8px; border: 1px solid #00ff41; border-radius: 4px; font-size: 0.85em; background: rgba(0, 20, 10, 0.8); color: #00ff41; box-shadow: 0 0 10px rgba(0, 255, 65, 0.2); min-width: 120px;">
+                        <option value="all" selected>All IPs</option>
+                    </select>
+                </div>
+
+                <button id="applyFilterBtn" style="padding: 5px 14px; background: rgba(0, 255, 65, 0.2); color: #00ff41; border: 1px solid #00ff41; border-radius: 4px; cursor: pointer; font-size: 0.85em; box-shadow: 0 0 10px rgba(0, 255, 65, 0.3); transition: all 0.3s; font-weight: bold;" onmouseover="this.style.background='rgba(0, 255, 65, 0.3)'; this.style.boxShadow='0 0 20px rgba(0, 255, 65, 0.6)';" onmouseout="this.style.background='rgba(0, 255, 65, 0.2)'; this.style.boxShadow='0 0 10px rgba(0, 255, 65, 0.3)';">APPLY</button>
+                <button id="clearFilterBtn" style="padding: 5px 14px; background: rgba(255, 68, 68, 0.2); color: #ff4444; border: 1px solid #ff4444; border-radius: 4px; cursor: pointer; font-size: 0.85em; box-shadow: 0 0 10px rgba(255, 68, 68, 0.3); transition: all 0.3s; font-weight: bold;" onmouseover="this.style.background='rgba(255, 68, 68, 0.3)'; this.style.boxShadow='0 0 20px rgba(255, 68, 68, 0.6)';" onmouseout="this.style.background='rgba(255, 68, 68, 0.2)'; this.style.boxShadow='0 0 10px rgba(255, 68, 68, 0.3)';">CLEAR</button>
+                <span id="filterStatus" style="font-size: 0.8em; color: #00ff41; margin-left: auto; text-shadow: 0 0 5px rgba(0, 255, 65, 0.5);"></span>
+            </div>
+
             <div class="history-list" id="historyList"></div>
+            <div id="loadingMore" style="text-align: center; padding: 15px; display: none;">
+                <div style="border: 3px solid rgba(0, 255, 65, 0.1); border-top: 3px solid #00ff41; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 0 auto; box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);"></div>
+            </div>
         </div>
+
+        <!-- Subtle lock button in page bottom right corner -->
+        <button id="unlockHistoryBtn" style="position: fixed; bottom: 15px; right: 15px; width: 28px; height: 28px; border-radius: 50%; background: rgba(0, 255, 65, 0.05); border: 1px solid rgba(0, 255, 65, 0.15); color: rgba(0, 255, 65, 0.3); font-size: 12px; cursor: pointer; box-shadow: none; transition: all 0.2s ease; z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 0; backdrop-filter: blur(3px); opacity: 0.4;" onmouseover="this.style.opacity='0.8'; this.style.background='rgba(0, 255, 65, 0.12)'; this.style.color='rgba(0, 255, 65, 0.6)'; this.style.borderColor='rgba(0, 255, 65, 0.3)';" onmouseout="this.style.opacity='0.4'; this.style.background='rgba(0, 255, 65, 0.05)'; this.style.color='rgba(0, 255, 65, 0.3)'; this.style.borderColor='rgba(0, 255, 65, 0.15)';">
+            🔒
+        </button>
     </div>
 
     <script>
@@ -503,6 +692,19 @@
         let recordingTimer = null;
         let authToken = null;
         let spacePressed = false;
+        let historyOffset = 0;
+        let historyHasMore = true;
+        let isLoadingHistory = false;
+        let allHistoryItems = [];
+        let currentFilters = {
+            time: 'all',
+            language: 'all',
+            duration: 'all',
+            ips: []  // Array of selected IPs
+        };
+        // Audio playback management
+        let currentAudioPlayers = {}; // Map of filename -> {audio, button}
+        let availableIPs = []; // List of available IPs from server
 
         // DOM elements
         const recordBtn = document.getElementById('recordBtn');
@@ -517,12 +719,26 @@
         const resultText = document.getElementById('resultText');
         const copyBtn = document.getElementById('copyBtn');
         const clearBtn = document.getElementById('clearBtn');
+        const polishBtn = document.getElementById('polishBtn');
+        const polishedSection = document.getElementById('polishedSection');
+        const polishedText = document.getElementById('polishedText');
+        const copyPolishedBtn = document.getElementById('copyPolishedBtn');
         const historyList = document.getElementById('historyList');
         const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
         const statusIndicator = document.getElementById('statusIndicator');
         const statusText = document.getElementById('statusText');
         const gpuInfo = document.getElementById('gpuInfo');
         const modelInfo = document.getElementById('modelInfo');
+        const unlockHistoryBtn = document.getElementById('unlockHistoryBtn');
+        const historySection = document.getElementById('historySection');
+        const timeFilter = document.getElementById('timeFilter');
+        const langFilter = document.getElementById('langFilter');
+        const durationFilter = document.getElementById('durationFilter');
+        const ipFilter = document.getElementById('ipFilter');
+        const applyFilterBtn = document.getElementById('applyFilterBtn');
+        const clearFilterBtn = document.getElementById('clearFilterBtn');
+        const filterStatus = document.getElementById('filterStatus');
+        const loadingMore = document.getElementById('loadingMore');
 
         // Event listeners
         recordBtn.addEventListener('click', toggleRecording);
@@ -530,25 +746,25 @@
         fileInput.addEventListener('change', handleFileUpload);
         copyBtn.addEventListener('click', copyResult);
         clearBtn.addEventListener('click', clearResult);
-        refreshHistoryBtn.addEventListener('click', loadHistory);
-
-        // Spacebar recording
-        document.addEventListener('keydown', (e) => {
-            if (e.code === 'Space' && !e.repeat && !isRecording && !spacePressed) {
-                e.preventDefault();
-                spacePressed = true;
-                if (recordBtn.disabled) return;
-                toggleRecording();
-            }
+        polishBtn.addEventListener('click', polishText);
+        copyPolishedBtn.addEventListener('click', copyPolishedText);
+        refreshHistoryBtn.addEventListener('click', () => {
+            allHistoryItems = [];
+            historyOffset = 0;
+            historyHasMore = true;
+            loadHistory();
         });
+        unlockHistoryBtn.addEventListener('click', unlockHistory);
+        applyFilterBtn.addEventListener('click', applyFilters);
+        clearFilterBtn.addEventListener('click', clearFilters);
 
-        document.addEventListener('keyup', (e) => {
-            if (e.code === 'Space' && spacePressed) {
-                e.preventDefault();
-                spacePressed = false;
-                if (isRecording) {
-                    toggleRecording();
-                }
+        // Spacebar recording feature removed - was interfering with text editing
+
+        // Endless scrolling for history list
+        historyList.addEventListener('scroll', () => {
+            const scrollPercentage = (historyList.scrollTop + historyList.clientHeight) / historyList.scrollHeight;
+            if (scrollPercentage > 0.9 && historyHasMore && !isLoadingHistory) {
+                loadMoreHistory();
             }
         });
 
@@ -771,6 +987,55 @@
         // Clear result
         function clearResult() {
             resultText.value = '';
+            polishedSection.style.display = 'none';
+            polishedText.value = '';
+        }
+
+        // Polish text using LLM
+        async function polishText() {
+            const text = resultText.value.trim();
+            if (!text) {
+                showError('No text to polish');
+                return;
+            }
+            
+            showProcessing(true, 'Polishing text with LLM...');
+            
+            try {
+                const response = await fetch('/api/polish', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ text: text })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    polishedText.value = data.polished;
+                    polishedSection.style.display = 'block';
+                    await copyToClipboard(data.polished);
+                    showSuccess('Text polished and copied to clipboard');
+                    
+                    // Smooth scroll to polished section
+                    polishedSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                } else {
+                    throw new Error(data.detail || 'Failed to polish text');
+                }
+            } catch (error) {
+                console.error('Polish error:', error);
+                showError('Failed to polish text: ' + error.message);
+            } finally {
+                showProcessing(false);
+            }
+        }
+        
+        // Copy polished text
+        async function copyPolishedText() {
+            if (polishedText.value) {
+                await copyToClipboard(polishedText.value);
+            }
         }
 
         // Password authentication functions
@@ -812,21 +1077,25 @@
         
         async function submitPassword() {
             const password = document.getElementById('passwordInput').value;
-            
+
             try {
                 const formData = new FormData();
                 formData.append('password', password);
-                
+
                 const response = await fetch('/api/auth', {
                     method: 'POST',
                     body: formData
                 });
-                
+
                 if (response.ok) {
                     const data = await response.json();
                     authToken = data.token;
                     localStorage.setItem('whisper_auth_token', authToken);
                     closePasswordModal();
+
+                    // Show history section and load history
+                    historySection.style.display = 'block';
+                    unlockHistoryBtn.style.display = 'none';
                     await loadHistory();
                 } else {
                     document.getElementById('passwordError').style.display = 'block';
@@ -836,61 +1105,411 @@
             }
         }
 
-        // Load history
+        // Unlock history - show password modal
+        async function unlockHistory() {
+            const hasSession = await checkSession();
+
+            if (hasSession) {
+                // Session valid, directly load history
+                historySection.style.display = 'block';
+                unlockHistoryBtn.style.display = 'none';
+                await loadHistory();
+            } else {
+                // Need to authenticate
+                showPasswordModal();
+            }
+        }
+
+        // Load history (initial load)
         async function loadHistory() {
             const hasSession = await checkSession();
-            
+
             if (!hasSession) {
                 showPasswordModal();
                 return;
             }
-            
+
+            allHistoryItems = [];
+            historyOffset = 0;
+            historyHasMore = true;
+            historyList.innerHTML = '';
+
+            await loadMoreHistory();
+
+            // Show history section
+            historySection.style.display = 'block';
+            unlockHistoryBtn.style.display = 'none';
+        }
+
+        // Load more history (pagination)
+        async function loadMoreHistory() {
+            if (isLoadingHistory || !historyHasMore) return;
+
+            const hasSession = await checkSession();
+            if (!hasSession) {
+                showPasswordModal();
+                return;
+            }
+
+            isLoadingHistory = true;
+            loadingMore.style.display = 'block';
+
             try {
-                const response = await fetch(`/api/history?token=${authToken}`);
-                
+                const response = await fetch(`/api/history?limit=50&offset=${historyOffset}&token=${authToken}`);
+
                 if (response.status === 401) {
                     localStorage.removeItem('whisper_auth_token');
                     authToken = null;
+                    historySection.style.display = 'none';
+                    unlockHistoryBtn.style.display = 'block';
                     showPasswordModal();
                     return;
                 }
-                
-                const history = await response.json();
-                
-                historyList.innerHTML = '';
-                
-                if (history.length === 0) {
-                    historyList.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">No transcriptions yet</div>';
-                    return;
+
+                const data = await response.json();
+                const history = data.items || [];
+
+                historyHasMore = data.has_more;
+                historyOffset += history.length;
+
+                // Update available IPs if this is the first load
+                if (data.unique_ips && availableIPs.length === 0) {
+                    availableIPs = data.unique_ips;
+                    updateIPFilterOptions();
                 }
-                
-                history.forEach(item => {
-                    const historyItem = document.createElement('div');
-                    historyItem.className = 'history-item';
-                    historyItem.innerHTML = `
-                        <div class="history-time">${item.timestamp} | ${item.language} | ${item.processing_time}</div>
-                        <div class="history-text">${item.full_text || item.text}</div>
-                    `;
-                    
-                    historyItem.onclick = () => {
-                        resultText.value = item.full_text || item.text;
-                        resultText.focus();
-                        resultText.select();
-                    };
-                    
-                    historyList.appendChild(historyItem);
-                });
+
+                // Add to all items
+                allHistoryItems.push(...history);
+
+                // Filter and render
+                renderFilteredHistory();
+
+                // Update filter status
+                updateFilterStatus();
+
             } catch (error) {
                 console.error('Failed to load history:', error);
+                showError('Failed to load history');
+            } finally {
+                isLoadingHistory = false;
+                loadingMore.style.display = 'none';
             }
         }
 
+        // Render filtered history
+        function renderFilteredHistory() {
+            const filteredItems = filterHistoryItems(allHistoryItems);
+
+            // Clear if starting fresh
+            if (historyOffset === filteredItems.length) {
+                historyList.innerHTML = '';
+            }
+
+            if (filteredItems.length === 0 && historyOffset === 0) {
+                historyList.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">No transcriptions match your filters</div>';
+                return;
+            }
+
+            // Render only new items
+            const startIndex = historyList.children.length;
+            for (let i = startIndex; i < filteredItems.length; i++) {
+                const item = filteredItems[i];
+                const historyItem = createHistoryItemElement(item);
+                historyList.appendChild(historyItem);
+            }
+        }
+
+        // Create history item element
+        function createHistoryItemElement(item) {
+            const historyItem = document.createElement('div');
+            historyItem.className = 'history-item';
+
+            // Format duration
+            const duration = item.audio_duration ? formatDuration(item.audio_duration) : '0s';
+
+            // Format client IP (向前兼容 - backward compatible)
+            const clientIP = item.client_ip || 'unknown';
+
+            // Create play button if audio file exists
+            const playButton = item.audio_file ?
+                `<button onclick="playAudio('${item.audio_file}', event)" style="padding: 4px 8px; background: rgba(0, 255, 65, 0.2); color: #00ff41; border: 1px solid #00ff41; border-radius: 4px; cursor: pointer; margin-right: 10px; font-size: 0.85em; box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);">▶ Play</button>` :
+                '';
+
+            historyItem.innerHTML = `
+                <div class="history-time">
+                    ${playButton}
+                    ${item.date || item.timestamp} ${item.time || ''} | ${item.language.toUpperCase()} | ${duration} | ${item.processing_time} | IP: ${clientIP}
+                </div>
+                <div class="history-text">${item.full_text || item.text}</div>
+            `;
+
+            historyItem.onclick = (e) => {
+                // Don't load text if clicking play button
+                if (e.target.tagName === 'BUTTON') return;
+
+                resultText.value = item.full_text || item.text;
+                resultText.focus();
+                resultText.select();
+            };
+
+            return historyItem;
+        }
+
+        // Format duration
+        function formatDuration(seconds) {
+            if (seconds < 60) {
+                return `${Math.round(seconds)}s`;
+            } else if (seconds < 3600) {
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.round(seconds % 60);
+                return `${mins}m ${secs}s`;
+            } else {
+                const hours = Math.floor(seconds / 3600);
+                const mins = Math.floor((seconds % 3600) / 60);
+                return `${hours}h ${mins}m`;
+            }
+        }
+
+        // Filter history items based on current filters
+        function filterHistoryItems(items) {
+            return items.filter(item => {
+                // Time filter
+                if (currentFilters.time !== 'all') {
+                    if (!matchesTimeFilter(item, currentFilters.time)) {
+                        return false;
+                    }
+                }
+
+                // Language filter
+                if (currentFilters.language !== 'all') {
+                    if (item.language !== currentFilters.language) {
+                        return false;
+                    }
+                }
+
+                // Duration filter
+                if (currentFilters.duration !== 'all') {
+                    if (!matchesDurationFilter(item, currentFilters.duration)) {
+                        return false;
+                    }
+                }
+
+                // IP filter (向前兼容)
+                if (currentFilters.ips && currentFilters.ips.length > 0 && !currentFilters.ips.includes('all')) {
+                    const itemIP = item.client_ip || 'unknown';
+                    if (!currentFilters.ips.includes(itemIP)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            });
+        }
+
+        // Check if item matches time filter
+        function matchesTimeFilter(item, timeFilter) {
+            if (!item.parsed_datetime) return true;
+
+            const itemDate = new Date(item.parsed_datetime);
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+
+            switch (timeFilter) {
+                case 'today':
+                    return itemDate >= today;
+                case 'yesterday':
+                    return itemDate >= yesterday && itemDate < today;
+                case 'week':
+                    const weekAgo = new Date(today);
+                    weekAgo.setDate(weekAgo.getDate() - 7);
+                    return itemDate >= weekAgo;
+                case 'month':
+                    const monthAgo = new Date(today);
+                    monthAgo.setDate(monthAgo.getDate() - 30);
+                    return itemDate >= monthAgo;
+                default:
+                    return true;
+            }
+        }
+
+        // Check if item matches duration filter
+        function matchesDurationFilter(item, durationFilter) {
+            const duration = item.audio_duration || 0;
+            const [min, max] = durationFilter.split('-').map(v => v === '' ? Infinity : parseFloat(v));
+
+            if (max === Infinity) {
+                return duration >= min;
+            } else {
+                return duration >= min && duration < max;
+            }
+        }
+
+        // Update IP filter options
+        function updateIPFilterOptions() {
+            ipFilter.innerHTML = '<option value="all">All IPs</option>';
+            availableIPs.forEach(ip => {
+                const option = document.createElement('option');
+                option.value = ip;
+                option.textContent = ip;
+                ipFilter.appendChild(option);
+            });
+        }
+
+        // Get selected IPs from multi-select
+        function getSelectedIPs() {
+            const selected = Array.from(ipFilter.selectedOptions).map(opt => opt.value);
+            return selected.length > 0 ? selected : ['all'];
+        }
+
+        // Apply filters
+        function applyFilters() {
+            currentFilters.time = timeFilter.value;
+            currentFilters.language = langFilter.value;
+            currentFilters.duration = durationFilter.value;
+            currentFilters.ips = getSelectedIPs();
+
+            historyList.innerHTML = '';
+            renderFilteredHistory();
+            updateFilterStatus();
+        }
+
+        // Clear filters
+        function clearFilters() {
+            timeFilter.value = 'all';
+            langFilter.value = 'all';
+            durationFilter.value = 'all';
+            ipFilter.selectedIndex = 0; // Reset to "All IPs"
+            currentFilters = { time: 'all', language: 'all', duration: 'all', ips: [] };
+
+            historyList.innerHTML = '';
+            renderFilteredHistory();
+            updateFilterStatus();
+        }
+
+        // Update filter status display
+        function updateFilterStatus() {
+            const filteredCount = filterHistoryItems(allHistoryItems).length;
+            const totalCount = allHistoryItems.length;
+
+            if (filteredCount < totalCount) {
+                filterStatus.textContent = `Showing ${filteredCount} of ${totalCount} items`;
+            } else {
+                filterStatus.textContent = `Showing ${totalCount} items`;
+            }
+        }
+
+        // Play audio function with play/pause toggle
+        function playAudio(filename, event) {
+            event.stopPropagation();
+
+            if (!authToken) {
+                showError('Authentication required to play audio');
+                return;
+            }
+
+            const button = event.target;
+            const originalText = '▶ Play';
+
+            // Check if this audio is already playing/paused
+            if (currentAudioPlayers[filename]) {
+                const player = currentAudioPlayers[filename];
+
+                if (player.audio.paused) {
+                    // Resume playing
+                    player.audio.play();
+                    button.textContent = '⏸ Pause';
+                } else {
+                    // Pause
+                    player.audio.pause();
+                    button.textContent = '▶ Resume';
+                }
+                return;
+            }
+
+            // New playback - load the audio
+            button.textContent = '⏳ Loading...';
+            button.disabled = true;
+
+            // First check if file exists
+            fetch(`/api/audio/${filename}?token=${authToken}`, { method: 'HEAD' })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Audio file not available');
+                    }
+
+                    // File exists, create and play audio
+                    const audio = new Audio(`/api/audio/${filename}?token=${authToken}`);
+
+                    // Store the player
+                    currentAudioPlayers[filename] = { audio, button };
+
+                    button.textContent = '⏸ Pause';
+                    button.disabled = false;
+
+                    audio.play().catch(error => {
+                        console.error('Error playing audio:', error);
+                        showError('Failed to play audio');
+                        button.textContent = '❌ Error';
+                        delete currentAudioPlayers[filename];
+                        setTimeout(() => {
+                            button.textContent = originalText;
+                            button.disabled = false;
+                        }, 2000);
+                    });
+
+                    audio.onended = () => {
+                        button.textContent = originalText;
+                        button.disabled = false;
+                        delete currentAudioPlayers[filename];
+                    };
+
+                    audio.onerror = () => {
+                        button.textContent = '❌ Error';
+                        showError('Failed to play audio');
+                        delete currentAudioPlayers[filename];
+                        setTimeout(() => {
+                            button.textContent = originalText;
+                            button.disabled = false;
+                        }, 2000);
+                    };
+
+                    // Handle pause event
+                    audio.onpause = () => {
+                        if (!audio.ended) {
+                            button.textContent = '▶ Resume';
+                        }
+                    };
+
+                    // Handle play event
+                    audio.onplay = () => {
+                        button.textContent = '⏸ Pause';
+                    };
+                })
+                .catch(error => {
+                    console.error('Audio file check failed:', error);
+                    button.textContent = '❌ Missing';
+                    button.style.background = 'rgba(153, 153, 153, 0.3)';
+                    button.style.borderColor = '#999';
+                    button.style.cursor = 'not-allowed';
+                    showError('Audio file not available (may have been deleted)');
+
+                    // Keep the button disabled and marked as missing
+                    setTimeout(() => {
+                        button.disabled = true;
+                    }, 100);
+                });
+        }
+
         // UI helper functions
-        function showProcessing(show) {
+        function showProcessing(show, message = 'Processing audio...') {
             if (show) {
+                processing.querySelector('p').textContent = message;
                 processing.classList.add('active');
             } else {
                 processing.classList.remove('active');
+                processing.querySelector('p').textContent = 'Processing audio...';
             }
         }
 

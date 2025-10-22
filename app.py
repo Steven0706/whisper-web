@@ -5,7 +5,7 @@ High-performance voice-to-text transcription using OpenAI's Whisper
 """
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request, Depends
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -31,6 +31,7 @@ import secrets
 import hashlib
 from datetime import timedelta
 import mimetypes
+import httpx
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -161,15 +162,38 @@ def validate_audio_file(content_type: str, filename: str) -> bool:
     """Validate if file is an allowed audio type"""
     if content_type in Config.ALLOWED_AUDIO_TYPES:
         return True
-    
+
     # Check by file extension as fallback
     mime_type, _ = mimetypes.guess_type(filename)
     return mime_type in Config.ALLOWED_AUDIO_TYPES if mime_type else False
 
-def save_transcription(text: str, filename: str, language: str, processing_time: str, segments: list = None):
+def get_client_ip(request: Request) -> str:
+    """Extract real client IP from request headers (considering reverse proxy)"""
+    # Try X-Real-IP first (set by Nginx)
+    real_ip = request.headers.get('X-Real-IP')
+    if real_ip:
+        return real_ip
+
+    # Try X-Forwarded-For (may contain multiple IPs)
+    forwarded_for = request.headers.get('X-Forwarded-For')
+    if forwarded_for:
+        # Take the first IP (original client)
+        return forwarded_for.split(',')[0].strip()
+
+    # Fallback to direct connection IP
+    return request.client.host if request.client else "unknown"
+
+def save_transcription(text: str, filename: str, language: str, processing_time: str, segments: list = None, timestamp: str = None, client_ip: str = None):
     """Save transcription to history"""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+    # Use provided timestamp or generate new one
+    if not timestamp:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Calculate audio duration from segments
+    audio_duration = 0
+    if segments and len(segments) > 0:
+        audio_duration = segments[-1].get('end', 0)
+
     transcription_data = {
         "timestamp": timestamp,
         "filename": filename,
@@ -179,13 +203,15 @@ def save_transcription(text: str, filename: str, language: str, processing_time:
         "processing_time": processing_time,
         "model": MODEL_NAME,
         "segments": segments[:10] if segments else [],  # Store first 10 segments
-        "audio_file": f"{timestamp}_{filename}"
+        "audio_file": f"{timestamp}_{filename}",
+        "audio_duration": round(audio_duration, 2),  # Duration in seconds
+        "client_ip": client_ip or "unknown"  # Store client IP
     }
-    
+
     json_path = Config.TRANSCRIPTION_DIR / f"{timestamp}_transcription.json"
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(transcription_data, f, ensure_ascii=False, indent=2)
-    
+
     return timestamp
 
 @app.get("/", response_class=HTMLResponse)
@@ -203,6 +229,19 @@ async def health_check():
         "model_loaded": model is not None,
         "device": DEVICE,
         "model": MODEL_NAME
+    }
+
+@app.get("/debug/headers")
+async def debug_headers(request: Request):
+    """Debug endpoint to check request headers and IP information"""
+    return {
+        "remote_addr": request.client.host if request.client else "Unknown",
+        "remote_port": request.client.port if request.client else "Unknown",
+        "x_real_ip": request.headers.get('X-Real-IP', 'Not found'),
+        "x_forwarded_for": request.headers.get('X-Forwarded-For', 'Not found'),
+        "x_forwarded_proto": request.headers.get('X-Forwarded-Proto', 'Not found'),
+        "forwarded": request.headers.get('Forwarded', 'Not found'),
+        "all_headers": dict(request.headers)
     }
 
 @app.get("/api/status")
@@ -315,14 +354,19 @@ async def transcribe_audio(
             )
         
         processing_time = f"{time.time() - start_time:.2f}s"
-        
-        # Save transcription
+
+        # Get client IP
+        client_ip = get_client_ip(request)
+
+        # Save transcription with the same timestamp used for audio file
         save_transcription(
             result["text"],
             actual_filename,
             result.get("language", "unknown"),
             processing_time,
-            result.get("segments", [])
+            result.get("segments", []),
+            timestamp,  # Pass the timestamp used for audio file
+            client_ip   # Pass the client IP
         )
         
         # Clean up temp file
@@ -402,27 +446,229 @@ async def verify_session_endpoint(token: str = Form(...)) -> Dict[str, Any]:
 
 @app.get("/api/history")
 async def get_history(
-    limit: int = 20,
+    limit: int = 50,
+    offset: int = 0,
     token: Optional[str] = None
-) -> List[Dict[str, Any]]:
-    """Get recent transcription history (requires authentication)"""
-    
+) -> Dict[str, Any]:
+    """Get recent transcription history with pagination (requires authentication)"""
+
     # Check authentication
     if not token or not verify_session(token):
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     try:
+        all_files = sorted(Config.TRANSCRIPTION_DIR.glob("*.json"), reverse=True)
+        total_count = len(all_files)
+
+        # Collect unique IPs from all files (for filter options)
+        unique_ips = set()
+        for file in all_files:
+            try:
+                with open(file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    ip = data.get('client_ip', 'unknown')
+                    unique_ips.add(ip)
+            except:
+                pass
+
+        # Apply pagination
+        files = all_files[offset:offset + limit]
+
         history = []
-        files = sorted(Config.TRANSCRIPTION_DIR.glob("*.json"), reverse=True)[:limit]
-        
         for file in files:
             with open(file, 'r', encoding='utf-8') as f:
-                history.append(json.load(f))
-        
-        return history
+                data = json.load(f)
+
+                # Parse datetime from timestamp if available
+                if 'timestamp' in data:
+                    try:
+                        ts = data['timestamp']
+                        parsed_date = datetime.strptime(ts, "%Y%m%d_%H%M%S")
+                        data['parsed_datetime'] = parsed_date.isoformat()
+                        data['date'] = parsed_date.strftime("%Y-%m-%d")
+                        data['time'] = parsed_date.strftime("%H:%M:%S")
+                    except:
+                        pass
+
+                # Ensure audio_duration exists (for old records)
+                if 'audio_duration' not in data:
+                    data['audio_duration'] = 0
+
+                # Ensure client_ip exists (for old records)
+                if 'client_ip' not in data:
+                    data['client_ip'] = 'unknown'
+
+                history.append(data)
+
+        return {
+            "items": history,
+            "total": total_count,
+            "offset": offset,
+            "limit": limit,
+            "has_more": (offset + limit) < total_count,
+            "unique_ips": sorted(list(unique_ips))  # Return sorted list of unique IPs
+        }
     except Exception as e:
         logger.error(f"Error loading history: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to load history")
+
+@app.head("/api/audio/{filename}")
+@app.get("/api/audio/{filename}")
+async def get_audio(filename: str, token: Optional[str] = None):
+    """Serve recorded audio files (requires authentication via query param)"""
+
+    # Check authentication - accept token from query param
+    if not token or not verify_session(token):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    try:
+        # Security: prevent directory traversal
+        if ".." in filename or "/" in filename or "\\" in filename:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+
+        audio_path = Config.RECORDED_AUDIO_DIR / filename
+
+        # If exact file doesn't exist, try to find a close match (for old records with timestamp mismatch)
+        if not audio_path.exists():
+            # Extract timestamp from filename (format: YYYYMMDD_HHMMSS_recording.webm)
+            try:
+                parts = filename.split('_')
+                if len(parts) >= 3:
+                    date_part = parts[0]  # YYYYMMDD
+                    time_part = parts[1]  # HHMMSS
+                    suffix = Path(filename).suffix
+
+                    # Try to find files within ±10 seconds
+                    base_time = int(time_part)
+
+                    for offset in range(-10, 11):
+                        # Calculate new time
+                        hours = base_time // 10000
+                        minutes = (base_time % 10000) // 100
+                        seconds = (base_time % 100) + offset
+
+                        # Handle second overflow/underflow
+                        if seconds >= 60:
+                            seconds -= 60
+                            minutes += 1
+                        elif seconds < 0:
+                            seconds += 60
+                            minutes -= 1
+
+                        # Handle minute overflow/underflow
+                        if minutes >= 60:
+                            minutes -= 60
+                            hours += 1
+                        elif minutes < 0:
+                            minutes += 60
+                            hours -= 1
+
+                        # Skip if hours out of range
+                        if hours < 0 or hours >= 24:
+                            continue
+
+                        # Build new filename
+                        new_time = f"{hours:02d}{minutes:02d}{seconds:02d}"
+                        new_filename = f"{date_part}_{new_time}_recording{suffix}"
+                        new_path = Config.RECORDED_AUDIO_DIR / new_filename
+
+                        if new_path.exists():
+                            logger.info(f"Found matching audio file: {new_filename} for requested {filename}")
+                            audio_path = new_path
+                            filename = new_filename
+                            break
+            except Exception as e:
+                logger.warning(f"Failed to search for alternative audio file: {e}")
+
+        if not audio_path.exists():
+            raise HTTPException(status_code=404, detail="Audio file not found")
+
+        # Determine media type
+        suffix = audio_path.suffix.lower()
+        media_type_map = {
+            '.wav': 'audio/wav',
+            '.mp3': 'audio/mpeg',
+            '.webm': 'audio/webm',
+            '.ogg': 'audio/ogg',
+            '.m4a': 'audio/mp4',
+            '.flac': 'audio/flac'
+        }
+        media_type = media_type_map.get(suffix, 'audio/mpeg')
+
+        return FileResponse(
+            path=str(audio_path),
+            media_type=media_type,
+            filename=filename
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving audio file: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to serve audio file")
+
+@app.post("/api/polish")
+async def polish_text(request: Request) -> Dict[str, Any]:
+    """Polish transcribed text using LLM to add punctuation and fix errors"""
+    
+    try:
+        data = await request.json()
+        text = data.get("text", "")
+        
+        if not text:
+            raise HTTPException(status_code=400, detail="No text provided")
+        
+        # Prepare the prompt
+        prompt = f"""你是一个专业的文本编辑助手。下面是一段通过语音识别转换的文字，可能缺少标点符号、段落分隔，并且可能有一些识别错误的词汇。
+
+请帮我：
+1. 添加适当的标点符号（句号、逗号、问号、感叹号等）
+2. 分段（在适当的地方换行分段）
+3. 修正明显的语音识别错误
+4. 保持原意不变，只做格式和错误修正
+
+原始文本：
+{text}
+
+请直接输出修正后的文本，不要包含任何解释或说明。"""
+        
+        # Call Ollama API
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "qwen2.5:7b",
+                    "prompt": prompt,
+                    "stream": False,
+                    "temperature": 0.3,  # Lower temperature for more consistent output
+                    "top_p": 0.9,
+                    "max_tokens": len(text) * 2  # Allow for some expansion
+                }
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"Ollama API error: {response.status_code}")
+                raise HTTPException(status_code=500, detail="LLM service unavailable")
+            
+            result = response.json()
+            polished_text = result.get("response", "").strip()
+            
+            # If no response or error, return original
+            if not polished_text:
+                polished_text = text
+            
+            return {
+                "success": True,
+                "original": text,
+                "polished": polished_text,
+                "model": "qwen2.5:7b"
+            }
+            
+    except httpx.TimeoutException:
+        logger.error("Ollama API timeout")
+        raise HTTPException(status_code=504, detail="LLM service timeout")
+    except Exception as e:
+        logger.error(f"Polish text error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     uvicorn.run(
