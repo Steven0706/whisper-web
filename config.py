@@ -35,6 +35,7 @@ class Config:
     TRANSCRIPTION_DIR = BASE_DIR / "transcriptions"
     RECORDED_AUDIO_DIR = BASE_DIR / "recorded_audio"
     TEMPLATE_DIR = BASE_DIR / "templates"
+    CLIPBOARD_DIR = BASE_DIR / "clipboard"
     
     # Allowed audio types
     ALLOWED_AUDIO_TYPES = {
@@ -53,3 +54,4 @@ class Config:
         cls.TRANSCRIPTION_DIR.mkdir(exist_ok=True)
         cls.RECORDED_AUDIO_DIR.mkdir(exist_ok=True)
         cls.TEMPLATE_DIR.mkdir(exist_ok=True)
+        cls.CLIPBOARD_DIR.mkdir(exist_ok=True)

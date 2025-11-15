@@ -32,6 +32,7 @@ import hashlib
 from datetime import timedelta
 import mimetypes
 import httpx
+import uuid
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -668,6 +669,203 @@ async def polish_text(request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=504, detail="LLM service timeout")
     except Exception as e:
         logger.error(f"Polish text error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Clipboard endpoints
+def get_clipboard_items(limit: int = 10) -> List[Dict[str, Any]]:
+    """Get most recent clipboard items"""
+    try:
+        all_files = sorted(Config.CLIPBOARD_DIR.glob("*.json"), reverse=True)
+        items = []
+
+        for file in all_files[:limit]:
+            with open(file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                # Create preview from first 10 characters
+                content = data.get('content', '')
+                data['preview'] = content[:10] if content else ''
+
+                # Don't include full content in list
+                if data.get('password_hash'):
+                    data['is_locked'] = True
+                else:
+                    data['is_locked'] = False
+
+                # Remove full content from list response
+                del data['content']
+                items.append(data)
+
+        return items
+    except Exception as e:
+        logger.error(f"Error loading clipboard items: {str(e)}")
+        return []
+
+@app.post("/api/clipboard")
+async def create_clipboard(request: Request) -> Dict[str, Any]:
+    """Create a new clipboard item"""
+    try:
+        data = await request.json()
+        content = data.get("content", "")
+        password = data.get("password")  # 4-digit password, optional
+
+        if not content:
+            raise HTTPException(status_code=400, detail="Content cannot be empty")
+
+        # Validate password if provided
+        if password:
+            if not password.isdigit() or len(password) != 4:
+                raise HTTPException(status_code=400, detail="Password must be exactly 4 digits")
+
+        # Generate unique ID
+        item_id = str(uuid.uuid4())
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Create clipboard item
+        item = {
+            "id": item_id,
+            "content": content,
+            "password_hash": hash_password(password) if password else None,
+            "created_at": timestamp,
+            "updated_at": timestamp
+        }
+
+        # Save to file
+        filename = f"{timestamp}_{item_id}.json"
+        filepath = Config.CLIPBOARD_DIR / filename
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(item, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"Created clipboard item: {item_id}")
+
+        return {
+            "success": True,
+            "id": item_id,
+            "created_at": timestamp
+        }
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON data")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Create clipboard error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/clipboard")
+async def list_clipboard() -> Dict[str, Any]:
+    """Get list of clipboard items (latest 10)"""
+    try:
+        items = get_clipboard_items(limit=10)
+        return {
+            "success": True,
+            "items": items,
+            "count": len(items)
+        }
+    except Exception as e:
+        logger.error(f"List clipboard error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/clipboard/{item_id}/verify")
+async def verify_clipboard_password(item_id: str, request: Request) -> Dict[str, Any]:
+    """Verify password and get clipboard content"""
+    try:
+        data = await request.json()
+        password = data.get("password", "")
+
+        # Find the clipboard item
+        files = list(Config.CLIPBOARD_DIR.glob(f"*_{item_id}.json"))
+
+        if not files:
+            raise HTTPException(status_code=404, detail="Clipboard item not found")
+
+        filepath = files[0]
+
+        with open(filepath, 'r', encoding='utf-8') as f:
+            item = json.load(f)
+
+        # Check if password protected
+        if not item.get('password_hash'):
+            # No password, return content directly
+            return {
+                "success": True,
+                "content": item['content'],
+                "is_locked": False
+            }
+
+        # Verify password
+        if hash_password(password) != item['password_hash']:
+            raise HTTPException(status_code=401, detail="Incorrect password")
+
+        return {
+            "success": True,
+            "content": item['content'],
+            "is_locked": True
+        }
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON data")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Verify clipboard password error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/clipboard/{item_id}")
+async def get_clipboard_item(item_id: str) -> Dict[str, Any]:
+    """Get clipboard item (only if no password)"""
+    try:
+        # Find the clipboard item
+        files = list(Config.CLIPBOARD_DIR.glob(f"*_{item_id}.json"))
+
+        if not files:
+            raise HTTPException(status_code=404, detail="Clipboard item not found")
+
+        filepath = files[0]
+
+        with open(filepath, 'r', encoding='utf-8') as f:
+            item = json.load(f)
+
+        # Check if password protected
+        if item.get('password_hash'):
+            raise HTTPException(status_code=403, detail="Password required")
+
+        return {
+            "success": True,
+            "content": item['content'],
+            "is_locked": False
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get clipboard item error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/clipboard/{item_id}")
+async def delete_clipboard_item(item_id: str) -> Dict[str, Any]:
+    """Delete a clipboard item"""
+    try:
+        # Find the clipboard item
+        files = list(Config.CLIPBOARD_DIR.glob(f"*_{item_id}.json"))
+
+        if not files:
+            raise HTTPException(status_code=404, detail="Clipboard item not found")
+
+        filepath = files[0]
+        os.unlink(filepath)
+
+        logger.info(f"Deleted clipboard item: {item_id}")
+
+        return {
+            "success": True,
+            "message": "Clipboard item deleted"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete clipboard item error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
