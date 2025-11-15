@@ -270,6 +270,101 @@
             color: #999;
             white-space: nowrap;
         }
+
+        /* Streaming Toggle Switch */
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toggle-switch label {
+            font-size: 0.85em;
+            color: #00ff41;
+            text-shadow: 0 0 5px rgba(0, 255, 65, 0.5);
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 26px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 255, 65, 0.2);
+            transition: 0.4s;
+            border-radius: 26px;
+            border: 1px solid rgba(0, 255, 65, 0.4);
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 2px;
+            bottom: 2px;
+            background-color: #00ff41;
+            transition: 0.4s;
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.8);
+        }
+
+        input:checked + .slider {
+            background-color: rgba(255, 235, 59, 0.3);
+            border-color: rgba(255, 235, 59, 0.6);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(24px);
+            background-color: #ffeb3b;
+            box-shadow: 0 0 10px rgba(255, 235, 59, 0.8);
+        }
+
+        .streaming-indicator {
+            display: none;
+            align-items: center;
+            gap: 5px;
+            color: #ffeb3b;
+            font-size: 0.85em;
+            text-shadow: 0 0 10px rgba(255, 235, 59, 0.8);
+        }
+
+        .streaming-indicator.active {
+            display: flex;
+        }
+
+        .streaming-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ffeb3b;
+            animation: streaming-pulse 1s infinite;
+        }
+
+        @keyframes streaming-pulse {
+            0%, 100% {
+                opacity: 1;
+                box-shadow: 0 0 10px #ffeb3b;
+            }
+            50% {
+                opacity: 0.4;
+                box-shadow: 0 0 5px #ffeb3b;
+            }
+        }
         
         /* Main result area - larger */
         .result-section {
@@ -793,6 +888,29 @@
                 </select>
             </div>
 
+            <div class="divider"></div>
+
+            <div class="toggle-switch">
+                <label for="streamingToggle">Streaming:</label>
+                <label class="switch">
+                    <input type="checkbox" id="streamingToggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="streaming-indicator" id="streamingIndicator">
+                <div class="streaming-dot"></div>
+                <span>Streaming</span>
+            </div>
+
+            <div class="toggle-switch" id="polishToggleContainer" style="display: none;">
+                <label for="polishToggle">Polish:</label>
+                <label class="switch">
+                    <input type="checkbox" id="polishToggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+
             <div class="spacer"></div>
         </div>
 
@@ -948,6 +1066,14 @@
         let currentAudioPlayers = {}; // Map of filename -> {audio, button}
         let availableIPs = []; // List of available IPs from server
 
+        // Streaming WebSocket variables
+        let streamingWebSocket = null;
+        let streamingAudioContext = null;
+        let streamingProcessor = null;
+        let streamingSource = null;
+        let streamingStream = null;
+        let isStreamingMode = false;
+
         // DOM elements
         const recordBtn = document.getElementById('recordBtn');
         const recordIcon = document.getElementById('recordIcon');
@@ -981,9 +1107,18 @@
         const clearFilterBtn = document.getElementById('clearFilterBtn');
         const filterStatus = document.getElementById('filterStatus');
         const loadingMore = document.getElementById('loadingMore');
+        const streamingToggle = document.getElementById('streamingToggle');
+        const streamingIndicator = document.getElementById('streamingIndicator');
+        const polishToggle = document.getElementById('polishToggle');
+        const polishToggleContainer = document.getElementById('polishToggleContainer');
 
         // Event listeners
         recordBtn.addEventListener('click', toggleRecording);
+        streamingToggle.addEventListener('change', (e) => {
+            isStreamingMode = e.target.checked;
+            // Show/hide polish toggle when streaming mode is enabled
+            polishToggleContainer.style.display = isStreamingMode ? 'flex' : 'none';
+        });
         uploadBtn.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', handleFileUpload);
         copyBtn.addEventListener('click', copyResult);
@@ -1076,12 +1211,21 @@
 
         // Toggle recording
         async function toggleRecording() {
+            if (isStreamingMode) {
+                await toggleStreamingRecording();
+            } else {
+                await toggleNormalRecording();
+            }
+        }
+
+        // Normal (non-streaming) recording toggle
+        async function toggleNormalRecording() {
             if (!isRecording) {
                 if (!mediaRecorder) {
                     const success = await initMicrophone();
                     if (!success) return;
                 }
-                
+
                 audioChunks = [];
                 mediaRecorder.start();
                 isRecording = true;
@@ -1089,10 +1233,11 @@
                 recordIcon.textContent = '⏹️';
                 recordingTime.classList.add('active');
                 uploadBtn.disabled = true;
-                
+                streamingToggle.disabled = true;
+
                 recordingStartTime = Date.now();
                 updateRecordingTime();
-                
+
             } else {
                 mediaRecorder.stop();
                 isRecording = false;
@@ -1100,11 +1245,268 @@
                 recordIcon.textContent = '🎤';
                 recordingTime.classList.remove('active');
                 uploadBtn.disabled = false;
-                
+                streamingToggle.disabled = false;
+
                 if (recordingTimer) {
                     clearInterval(recordingTimer);
                     recordingTimer = null;
                 }
+            }
+        }
+
+        // Streaming recording toggle
+        async function toggleStreamingRecording() {
+            if (!isRecording) {
+                await startStreamingRecording();
+            } else {
+                await stopStreamingRecording();
+            }
+        }
+
+        // Start streaming recording with WebSocket
+        async function startStreamingRecording() {
+            try {
+                // Get microphone stream
+                streamingStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        sampleRate: 16000,
+                        channelCount: 1
+                    }
+                });
+
+                // Create AudioContext for processing
+                streamingAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 16000
+                });
+
+                // Connect WebSocket
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${wsProtocol}//${window.location.host}/ws/transcribe`;
+                streamingWebSocket = new WebSocket(wsUrl);
+
+                streamingWebSocket.onopen = () => {
+                    // Send configuration
+                    streamingWebSocket.send(JSON.stringify({
+                        type: 'config',
+                        language: languageSelect.value || null,
+                        task: taskSelect.value,
+                        sample_rate: 16000,
+                        enable_polish: polishToggle.checked
+                    }));
+                };
+
+                streamingWebSocket.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    handleStreamingMessage(data);
+                };
+
+                streamingWebSocket.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    showError('Streaming connection error');
+                    stopStreamingRecording();
+                };
+
+                streamingWebSocket.onclose = () => {
+                    console.log('WebSocket closed');
+                    if (isRecording) {
+                        stopStreamingRecording();
+                    }
+                };
+
+                // Wait for WebSocket to be ready
+                await new Promise((resolve, reject) => {
+                    const checkReady = setInterval(() => {
+                        if (streamingWebSocket.readyState === WebSocket.OPEN) {
+                            clearInterval(checkReady);
+                            resolve();
+                        }
+                    }, 100);
+
+                    setTimeout(() => {
+                        clearInterval(checkReady);
+                        reject(new Error('WebSocket connection timeout'));
+                    }, 5000);
+                });
+
+                // Create audio processor
+                streamingSource = streamingAudioContext.createMediaStreamSource(streamingStream);
+                streamingProcessor = streamingAudioContext.createScriptProcessor(4096, 1, 1);
+
+                streamingProcessor.onaudioprocess = (e) => {
+                    if (streamingWebSocket && streamingWebSocket.readyState === WebSocket.OPEN) {
+                        const inputData = e.inputBuffer.getChannelData(0);
+                        // Convert float32 to int16
+                        const int16Data = new Int16Array(inputData.length);
+                        for (let i = 0; i < inputData.length; i++) {
+                            const s = Math.max(-1, Math.min(1, inputData[i]));
+                            int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                        }
+                        streamingWebSocket.send(int16Data.buffer);
+                    }
+                };
+
+                streamingSource.connect(streamingProcessor);
+                streamingProcessor.connect(streamingAudioContext.destination);
+
+                // Update UI
+                isRecording = true;
+                recordBtn.classList.add('recording');
+                recordIcon.textContent = '⏹️';
+                recordingTime.classList.add('active');
+                streamingIndicator.classList.add('active');
+                uploadBtn.disabled = true;
+                streamingToggle.disabled = true;
+
+                recordingStartTime = Date.now();
+                updateRecordingTime();
+
+                // Clear previous results
+                resultText.value = '';
+
+            } catch (error) {
+                console.error('Error starting streaming:', error);
+                showError('Failed to start streaming: ' + error.message);
+                cleanupStreaming();
+            }
+        }
+
+        // Stop streaming recording
+        async function stopStreamingRecording() {
+            // Update UI immediately
+            isRecording = false;
+            recordBtn.classList.remove('recording');
+            recordIcon.textContent = '🎤';
+            recordingTime.classList.remove('active');
+            uploadBtn.disabled = false;
+            streamingToggle.disabled = false;
+
+            if (recordingTimer) {
+                clearInterval(recordingTimer);
+                recordingTimer = null;
+            }
+
+            // Stop audio processing first
+            if (streamingProcessor) {
+                streamingProcessor.disconnect();
+                streamingProcessor = null;
+            }
+
+            if (streamingSource) {
+                streamingSource.disconnect();
+                streamingSource = null;
+            }
+
+            if (streamingStream) {
+                streamingStream.getTracks().forEach(track => track.stop());
+                streamingStream = null;
+            }
+
+            // Show processing indicator while waiting for final result
+            showProcessing(true, 'Processing final transcription...');
+
+            // Signal end of stream to server
+            if (streamingWebSocket && streamingWebSocket.readyState === WebSocket.OPEN) {
+                streamingWebSocket.send(JSON.stringify({ type: 'end' }));
+            }
+
+            // Wait for final message before cleanup (will be handled in onmessage)
+            // The cleanup will happen after receiving the final message or on timeout
+            setTimeout(() => {
+                if (streamingIndicator.classList.contains('active')) {
+                    // Still waiting, force cleanup
+                    streamingIndicator.classList.remove('active');
+                    cleanupStreaming();
+                    showProcessing(false);
+                }
+            }, 30000); // 30 second timeout for final processing
+        }
+
+        // Handle incoming streaming messages
+        function handleStreamingMessage(data) {
+            switch (data.type) {
+                case 'ready':
+                    console.log('Streaming ready:', data.message);
+                    const polishStatus = data.polish_enabled ? ' + Polish' : '';
+                    showSuccess(`Streaming ready - ${data.model} on ${data.device}${polishStatus}`);
+                    break;
+
+                case 'partial':
+                    // Update result with partial transcription
+                    if (data.full_transcript) {
+                        resultText.value = data.full_transcript;
+                    }
+                    if (data.processing_time) {
+                        statusText.textContent = `Online | Chunk: ${data.processing_time} | Buffer: ${data.buffer_duration || ''}`;
+                    }
+                    break;
+
+                case 'polished':
+                    // Update with polished transcription
+                    if (data.polished_transcript) {
+                        resultText.value = data.polished_transcript;
+                        statusText.textContent = `Online | Polished ✨`;
+                    }
+                    break;
+
+                case 'final':
+                    // Final transcription result - prefer polished if available
+                    const finalText = data.polished_transcript || data.full_transcript;
+                    if (finalText) {
+                        resultText.value = finalText;
+                        copyToClipboard(finalText);
+                    }
+                    const polishedNote = data.polished_transcript ? ' (Polished)' : '';
+                    showSuccess(`Streaming complete - Total: ${data.total_duration}${polishedNote}`);
+                    showProcessing(false);
+                    streamingIndicator.classList.remove('active');
+                    // Cleanup after receiving final result
+                    cleanupStreaming();
+                    break;
+
+                case 'error':
+                    showError('Streaming error: ' + data.message);
+                    showProcessing(false);
+                    streamingIndicator.classList.remove('active');
+                    cleanupStreaming();
+                    break;
+
+                case 'ping':
+                    if (streamingWebSocket && streamingWebSocket.readyState === WebSocket.OPEN) {
+                        streamingWebSocket.send(JSON.stringify({ type: 'pong' }));
+                    }
+                    break;
+            }
+        }
+
+        // Cleanup streaming resources
+        function cleanupStreaming() {
+            if (streamingProcessor) {
+                streamingProcessor.disconnect();
+                streamingProcessor = null;
+            }
+
+            if (streamingSource) {
+                streamingSource.disconnect();
+                streamingSource = null;
+            }
+
+            if (streamingAudioContext) {
+                streamingAudioContext.close();
+                streamingAudioContext = null;
+            }
+
+            if (streamingStream) {
+                streamingStream.getTracks().forEach(track => track.stop());
+                streamingStream = null;
+            }
+
+            if (streamingWebSocket) {
+                if (streamingWebSocket.readyState === WebSocket.OPEN) {
+                    streamingWebSocket.close();
+                }
+                streamingWebSocket = null;
             }
         }
 
@@ -1994,6 +2396,8 @@
             if (mediaRecorder && mediaRecorder.state === 'recording') {
                 mediaRecorder.stop();
             }
+            // Cleanup streaming resources
+            cleanupStreaming();
         });
     </script>
 </body>

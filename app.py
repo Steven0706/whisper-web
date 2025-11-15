@@ -4,7 +4,7 @@ Whisper Web - Self-hosted Speech Recognition Service
 High-performance voice-to-text transcription using OpenAI's Whisper
 """
 
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request, Depends
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request, Depends, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +33,9 @@ from datetime import timedelta
 import mimetypes
 import httpx
 import uuid
+import soundfile as sf
+import wave
+import struct
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -637,7 +640,7 @@ async def polish_text(request: Request) -> Dict[str, Any]:
             response = await client.post(
                 "http://localhost:11434/api/generate",
                 json={
-                    "model": "qwen2.5:7b",
+                    "model": "qwen3-coder:30b",
                     "prompt": prompt,
                     "stream": False,
                     "temperature": 0.3,  # Lower temperature for more consistent output
@@ -661,7 +664,7 @@ async def polish_text(request: Request) -> Dict[str, Any]:
                 "success": True,
                 "original": text,
                 "polished": polished_text,
-                "model": "qwen2.5:7b"
+                "model": "qwen3-coder:30b"
             }
             
     except httpx.TimeoutException:
@@ -867,6 +870,519 @@ async def delete_clipboard_item(item_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Delete clipboard item error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# WebSocket Streaming Transcription
+class StreamingTranscriber:
+    """Handle streaming audio transcription with overlapping chunks and smart deduplication"""
+
+    def __init__(self, language: Optional[str] = None, task: str = "transcribe"):
+        self.audio_buffer = np.array([], dtype=np.float32)
+        self.sample_rate = 16000  # Whisper expects 16kHz
+        self.language = language
+        self.task = task
+        self.full_transcript = ""
+        self.polished_transcript = ""
+        self.segments = []
+        self.processed_audio_position = 0  # Position in samples of last processed end
+
+        # Overlapping chunk configuration
+        self.chunk_duration = 10.0  # Process 10 seconds at a time
+        self.overlap_duration = 5.0  # Keep 5 seconds overlap
+        self.min_new_audio = 5.0  # Process when we have 5 seconds of new audio
+
+        # For deduplication
+        self.last_chunk_text = ""
+        self.last_chunk_end_words = []
+
+        # For real-time polishing
+        self.unpolished_buffer = ""
+        self.polish_enabled = True
+
+        self.last_process_time = time.time()
+        self.total_audio_duration = 0.0
+
+    def add_audio_chunk(self, audio_data: bytes, input_sample_rate: int = 16000):
+        """Add audio chunk to buffer"""
+        try:
+            # Convert bytes to numpy array (assuming 16-bit PCM)
+            audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+
+            # Resample if necessary
+            if input_sample_rate != self.sample_rate:
+                from scipy import signal
+                num_samples = int(len(audio_array) * self.sample_rate / input_sample_rate)
+                audio_array = signal.resample(audio_array, num_samples)
+
+            # Append to buffer
+            self.audio_buffer = np.concatenate([self.audio_buffer, audio_array])
+
+        except Exception as e:
+            logger.error(f"Error adding audio chunk: {e}")
+            raise
+
+    def get_buffer_duration(self) -> float:
+        """Get current buffer duration in seconds"""
+        return len(self.audio_buffer) / self.sample_rate
+
+    def get_new_audio_duration(self) -> float:
+        """Get duration of unprocessed audio"""
+        unprocessed_samples = len(self.audio_buffer) - self.processed_audio_position
+        return max(0, unprocessed_samples / self.sample_rate)
+
+    def should_process(self) -> bool:
+        """Check if we have enough new audio to process"""
+        return self.get_new_audio_duration() >= self.min_new_audio
+
+    def detect_silence(self, audio: np.ndarray, threshold: float = 0.01) -> List[int]:
+        """Detect silence positions in audio for smart boundary detection"""
+        window_size = int(self.sample_rate * 0.05)  # 50ms windows
+        silence_positions = []
+
+        for i in range(0, len(audio) - window_size, window_size):
+            window = audio[i:i + window_size]
+            energy = np.sqrt(np.mean(window ** 2))
+            if energy < threshold:
+                silence_positions.append(i + window_size // 2)
+
+        return silence_positions
+
+    def find_best_split_point(self, target_position: int) -> int:
+        """Find the best position to split audio (preferably at silence)"""
+        search_range = int(self.sample_rate * 1.0)  # Search within 1 second
+        start = max(0, target_position - search_range)
+        end = min(len(self.audio_buffer), target_position + search_range)
+
+        if end <= start:
+            return target_position
+
+        # Find silence positions in the search range
+        search_audio = self.audio_buffer[start:end]
+        silence_positions = self.detect_silence(search_audio)
+
+        if silence_positions:
+            # Find the silence position closest to target
+            adjusted_positions = [pos + start for pos in silence_positions]
+            best_pos = min(adjusted_positions, key=lambda x: abs(x - target_position))
+            return best_pos
+
+        return target_position
+
+    def deduplicate_text(self, new_text: str) -> str:
+        """Remove overlapping text from new transcription"""
+        if not self.last_chunk_text or not new_text:
+            return new_text
+
+        # Split into words
+        new_words = new_text.split()
+        last_words = self.last_chunk_text.split()
+
+        if not new_words or not last_words:
+            return new_text
+
+        # Find overlap by checking if beginning of new text matches end of last text
+        max_overlap = min(len(new_words), len(last_words), 30)  # Check up to 30 words
+
+        best_overlap = 0
+        for overlap_size in range(1, max_overlap + 1):
+            # Check if last N words of previous chunk match first N words of new chunk
+            if last_words[-overlap_size:] == new_words[:overlap_size]:
+                best_overlap = overlap_size
+
+        # If we found overlap, remove the overlapping words from new text
+        if best_overlap > 0:
+            deduplicated = " ".join(new_words[best_overlap:])
+            logger.info(f"Removed {best_overlap} overlapping words")
+            return deduplicated
+
+        return new_text
+
+    async def polish_text_async(self, text: str) -> str:
+        """Polish text using Ollama in real-time"""
+        if not text or not self.polish_enabled:
+            return text
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:  # Increased timeout for larger model
+                response = await client.post(
+                    "http://localhost:11434/api/generate",
+                    json={
+                        "model": "qwen3-coder:30b",
+                        "prompt": f"""Fix this speech-to-text output. Add punctuation, fix errors. Output ONLY the fixed text, no explanation.
+
+{text}
+
+Fixed:""",
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.1,
+                            "num_predict": min(len(text) * 2, 2000)
+                        }
+                    }
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    polished = result.get("response", text).strip()
+                    polished = polished.strip('"\'')
+                    return polished
+        except Exception as e:
+            logger.warning(f"Polish failed: {e}")
+
+        return text
+
+    def process_buffer(self) -> Dict[str, Any]:
+        """Process current audio buffer with Whisper using overlapping chunks"""
+        if len(self.audio_buffer) == 0:
+            return {"text": "", "is_final": False}
+
+        start_time = time.time()
+
+        try:
+            # Determine what audio to process
+            chunk_samples = int(self.chunk_duration * self.sample_rate)
+            overlap_samples = int(self.overlap_duration * self.sample_rate)
+
+            # Calculate start position for this chunk (with overlap from last processed)
+            if self.processed_audio_position == 0:
+                # First chunk, process from beginning
+                start_pos = 0
+            else:
+                # Start from overlap position (go back from last processed position)
+                start_pos = max(0, self.processed_audio_position - overlap_samples)
+                # Try to find a good split point at silence
+                start_pos = self.find_best_split_point(start_pos)
+
+            # Get audio chunk
+            audio_to_process = self.audio_buffer[start_pos:]
+
+            # If chunk is too long, truncate it
+            if len(audio_to_process) > chunk_samples:
+                audio_to_process = audio_to_process[:chunk_samples]
+
+            # Create temporary WAV file
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                sf.write(tmp_file.name, audio_to_process, self.sample_rate)
+                temp_path = tmp_file.name
+
+            # Transcribe with GPU optimization
+            if DEVICE == "cuda":
+                with torch.cuda.amp.autocast():
+                    result = model.transcribe(
+                        temp_path,
+                        language=self.language,
+                        task=self.task,
+                        fp16=(DEVICE == "cuda"),
+                        verbose=False,
+                        condition_on_previous_text=True,
+                        initial_prompt=self.full_transcript[-500:] if self.full_transcript else None
+                    )
+            else:
+                result = model.transcribe(
+                    temp_path,
+                    language=self.language,
+                    task=self.task,
+                    verbose=False,
+                    condition_on_previous_text=True,
+                    initial_prompt=self.full_transcript[-500:] if self.full_transcript else None
+                )
+
+            # Clean up temp file
+            os.unlink(temp_path)
+
+            # Get new text and deduplicate
+            raw_text = result["text"].strip()
+            new_text = self.deduplicate_text(raw_text)
+
+            # Update last chunk info for next deduplication
+            self.last_chunk_text = raw_text
+
+            # Update full transcript
+            if new_text:
+                if self.full_transcript:
+                    self.full_transcript += " " + new_text
+                else:
+                    self.full_transcript = new_text
+
+            # Update processed position (move forward, but keep overlap for next)
+            new_processed_pos = start_pos + len(audio_to_process)
+            self.processed_audio_position = new_processed_pos
+            self.total_audio_duration = new_processed_pos / self.sample_rate
+
+            # Update segments
+            chunk_start_time = start_pos / self.sample_rate
+            for seg in result.get("segments", []):
+                adjusted_seg = {
+                    "start": seg["start"] + chunk_start_time,
+                    "end": seg["end"] + chunk_start_time,
+                    "text": seg["text"]
+                }
+                self.segments.append(adjusted_seg)
+
+            processing_time = time.time() - start_time
+            self.last_process_time = time.time()
+
+            # Clear GPU cache
+            if DEVICE == "cuda":
+                torch.cuda.empty_cache()
+
+            return {
+                "text": new_text,
+                "raw_text": raw_text,
+                "full_transcript": self.full_transcript,
+                "language": result.get("language", "unknown"),
+                "processing_time": f"{processing_time:.2f}s",
+                "buffer_duration": f"{self.get_buffer_duration():.2f}s",
+                "total_duration": f"{self.total_audio_duration:.2f}s",
+                "is_final": False
+            }
+
+        except Exception as e:
+            logger.error(f"Error processing buffer: {e}")
+            raise
+
+    def finalize(self) -> Dict[str, Any]:
+        """Process any remaining audio and return final result"""
+        result = {"text": "", "is_final": True}
+
+        # Process all remaining unprocessed audio, even if it's short
+        remaining_duration = self.get_new_audio_duration()
+
+        if remaining_duration > 0.1:  # Process if more than 0.1s remaining (lowered threshold)
+            logger.info(f"Finalizing with {remaining_duration:.2f}s of unprocessed audio")
+
+            # Force process by temporarily lowering the threshold
+            original_min = self.min_new_audio
+            self.min_new_audio = 0.1  # Lower threshold for final processing
+
+            try:
+                # Process remaining audio
+                if self.get_new_audio_duration() > 0.1:
+                    result = self.process_buffer()
+            finally:
+                self.min_new_audio = original_min
+
+        # If we still haven't processed anything (very short audio), force process entire buffer
+        if not self.full_transcript and len(self.audio_buffer) > 0:
+            logger.info(f"Processing entire short buffer: {len(self.audio_buffer) / self.sample_rate:.2f}s")
+            # Process whatever we have
+            original_min = self.min_new_audio
+            original_chunk = self.chunk_duration
+            self.min_new_audio = 0.0
+            self.chunk_duration = len(self.audio_buffer) / self.sample_rate + 1.0  # Make chunk bigger than buffer
+
+            try:
+                result = self.process_buffer()
+            finally:
+                self.min_new_audio = original_min
+                self.chunk_duration = original_chunk
+
+        result["is_final"] = True
+        result["full_transcript"] = self.full_transcript
+        result["segments"] = self.segments
+        result["total_duration"] = f"{self.total_audio_duration:.2f}s"
+
+        return result
+
+
+@app.websocket("/ws/transcribe")
+async def websocket_transcribe(websocket: WebSocket):
+    """WebSocket endpoint for streaming transcription"""
+    await websocket.accept()
+
+    transcriber = None
+    client_ip = "unknown"
+
+    try:
+        # Get client IP
+        if websocket.client:
+            client_ip = websocket.client.host
+
+        # Check rate limit
+        if not check_rate_limit(client_ip):
+            await websocket.send_json({
+                "type": "error",
+                "message": "Rate limit exceeded. Please wait a moment."
+            })
+            await websocket.close()
+            return
+
+        logger.info(f"WebSocket connection established from {client_ip}")
+
+        # Wait for configuration message
+        config_data = await websocket.receive_json()
+
+        if config_data.get("type") != "config":
+            await websocket.send_json({
+                "type": "error",
+                "message": "First message must be configuration"
+            })
+            await websocket.close()
+            return
+
+        # Extract configuration
+        language = config_data.get("language")
+        task = config_data.get("task", "transcribe")
+        sample_rate = config_data.get("sample_rate", 16000)
+        enable_polish = config_data.get("enable_polish", True)
+
+        if task not in ["transcribe", "translate"]:
+            await websocket.send_json({
+                "type": "error",
+                "message": "Invalid task. Must be 'transcribe' or 'translate'"
+            })
+            await websocket.close()
+            return
+
+        # Initialize transcriber
+        transcriber = StreamingTranscriber(language=language, task=task)
+        transcriber.polish_enabled = enable_polish
+
+        # Send ready message
+        await websocket.send_json({
+            "type": "ready",
+            "message": "Streaming transcription ready",
+            "model": MODEL_NAME,
+            "device": DEVICE,
+            "polish_enabled": enable_polish
+        })
+
+        # Audio collection for saving
+        all_audio_chunks = []
+        last_polished_length = 0
+        connection_closed = False
+
+        # Process incoming audio
+        while True:
+            try:
+                message = await asyncio.wait_for(websocket.receive(), timeout=60.0)
+
+                # Check for disconnect message
+                if message.get("type") == "websocket.disconnect":
+                    logger.info("WebSocket disconnected by client")
+                    connection_closed = True
+                    break
+
+                if "bytes" in message:
+                    # Binary audio data
+                    audio_chunk = message["bytes"]
+                    all_audio_chunks.append(audio_chunk)
+                    transcriber.add_audio_chunk(audio_chunk, sample_rate)
+
+                    # Check if we should process
+                    if transcriber.should_process():
+                        result = transcriber.process_buffer()
+
+                        # Send partial transcription
+                        await websocket.send_json({
+                            "type": "partial",
+                            **result
+                        })
+
+                        # Try to polish in background if enabled and text is long enough
+                        if enable_polish and len(transcriber.full_transcript) > last_polished_length + 50:
+                            try:
+                                polished = await transcriber.polish_text_async(transcriber.full_transcript)
+                                if polished and polished != transcriber.full_transcript:
+                                    transcriber.polished_transcript = polished
+                                    await websocket.send_json({
+                                        "type": "polished",
+                                        "polished_transcript": polished
+                                    })
+                                    last_polished_length = len(transcriber.full_transcript)
+                            except Exception as e:
+                                logger.warning(f"Polish error: {e}")
+
+                elif "text" in message:
+                    # JSON control message
+                    data = json.loads(message["text"])
+
+                    if data.get("type") == "end":
+                        # Client signaled end of stream
+                        logger.info("Client signaled end of stream")
+                        break
+
+                    elif data.get("type") == "ping":
+                        # Keep-alive ping
+                        await websocket.send_json({"type": "pong"})
+
+            except asyncio.TimeoutError:
+                # Send ping to check connection
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except:
+                    break
+
+        # Finalize transcription - process any remaining audio even if short
+        logger.info(f"Finalizing transcription. Buffer duration: {transcriber.get_buffer_duration():.2f}s, New audio: {transcriber.get_new_audio_duration():.2f}s")
+        final_result = transcriber.finalize()
+
+        # Final polish
+        if enable_polish and transcriber.full_transcript:
+            try:
+                final_polished = await transcriber.polish_text_async(transcriber.full_transcript)
+                if final_polished:
+                    transcriber.polished_transcript = final_polished
+                    final_result["polished_transcript"] = final_polished
+            except Exception as e:
+                logger.warning(f"Final polish error: {e}")
+
+        # Save audio and transcription if we have content
+        if transcriber.full_transcript.strip():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Combine all audio chunks and save
+            if all_audio_chunks:
+                combined_audio = b''.join(all_audio_chunks)
+                audio_filename = f"{timestamp}_streaming.wav"
+                audio_path = Config.RECORDED_AUDIO_DIR / audio_filename
+
+                # Convert to proper WAV file
+                audio_array = np.frombuffer(combined_audio, dtype=np.int16).astype(np.float32) / 32768.0
+                if sample_rate != 16000:
+                    from scipy import signal
+                    num_samples = int(len(audio_array) * 16000 / sample_rate)
+                    audio_array = signal.resample(audio_array, num_samples)
+                sf.write(str(audio_path), audio_array, 16000)
+
+                # Save transcription
+                save_transcription(
+                    transcriber.full_transcript,
+                    "streaming.wav",
+                    final_result.get("language", "unknown"),
+                    final_result.get("total_duration", "0s"),
+                    transcriber.segments,
+                    timestamp,
+                    client_ip
+                )
+
+        # Send final result
+        await websocket.send_json({
+            "type": "final",
+            **final_result
+        })
+
+        logger.info(f"WebSocket transcription completed for {client_ip}")
+
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected from {client_ip}")
+    except Exception as e:
+        logger.error(f"WebSocket error: {str(e)}")
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": str(e)
+            })
+        except:
+            pass
+    finally:
+        # Cleanup
+        if transcriber:
+            del transcriber
+        if DEVICE == "cuda":
+            torch.cuda.empty_cache()
+        gc.collect()
+
 
 if __name__ == "__main__":
     uvicorn.run(
