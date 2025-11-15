@@ -235,6 +235,30 @@ async def health_check():
         "model": MODEL_NAME
     }
 
+@app.get("/debug/routes")
+async def debug_routes():
+    """Debug endpoint to check all registered routes including WebSocket"""
+    routes = []
+    for route in app.routes:
+        route_info = {
+            "path": getattr(route, "path", str(route)),
+            "name": getattr(route, "name", "unknown"),
+        }
+        if hasattr(route, "methods"):
+            route_info["methods"] = list(route.methods)
+        if "websocket" in str(type(route)).lower():
+            route_info["type"] = "websocket"
+        else:
+            route_info["type"] = "http"
+        routes.append(route_info)
+
+    ws_routes = [r for r in routes if r.get("type") == "websocket"]
+    return {
+        "total_routes": len(routes),
+        "websocket_routes": ws_routes,
+        "all_routes": routes
+    }
+
 @app.get("/debug/headers")
 async def debug_headers(request: Request):
     """Debug endpoint to check request headers and IP information"""
@@ -640,7 +664,7 @@ async def polish_text(request: Request) -> Dict[str, Any]:
             response = await client.post(
                 "http://localhost:11434/api/generate",
                 json={
-                    "model": "qwen3-coder:30b",
+                    "model": "qwen2.5:7b",
                     "prompt": prompt,
                     "stream": False,
                     "temperature": 0.3,  # Lower temperature for more consistent output
@@ -664,7 +688,7 @@ async def polish_text(request: Request) -> Dict[str, Any]:
                 "success": True,
                 "original": text,
                 "polished": polished_text,
-                "model": "qwen3-coder:30b"
+                "model": "qwen2.5:7b"
             }
             
     except httpx.TimeoutException:
@@ -1007,7 +1031,7 @@ class StreamingTranscriber:
                 response = await client.post(
                     "http://localhost:11434/api/generate",
                     json={
-                        "model": "qwen3-coder:30b",
+                        "model": "qwen2.5:7b",
                         "prompt": f"""Fix this speech-to-text output. Add punctuation, fix errors. Output ONLY the fixed text, no explanation.
 
 {text}
@@ -1188,10 +1212,14 @@ Fixed:""",
 @app.websocket("/ws/transcribe")
 async def websocket_transcribe(websocket: WebSocket):
     """WebSocket endpoint for streaming transcription"""
-    await websocket.accept()
-
     transcriber = None
     client_ip = "unknown"
+
+    try:
+        await websocket.accept()
+    except Exception as e:
+        logger.error(f"WebSocket accept failed: {e}")
+        return
 
     try:
         # Get client IP
@@ -1209,8 +1237,33 @@ async def websocket_transcribe(websocket: WebSocket):
 
         logger.info(f"WebSocket connection established from {client_ip}")
 
-        # Wait for configuration message
-        config_data = await websocket.receive_json()
+        # Wait for configuration message with timeout
+        try:
+            config_data = await asyncio.wait_for(websocket.receive_json(), timeout=30.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"WebSocket config timeout from {client_ip}")
+            await websocket.send_json({
+                "type": "error",
+                "message": "Configuration timeout. Please send config message."
+            })
+            await websocket.close()
+            return
+        except json.JSONDecodeError as e:
+            logger.warning(f"Invalid JSON config from {client_ip}: {e}")
+            await websocket.send_json({
+                "type": "error",
+                "message": "Invalid JSON configuration"
+            })
+            await websocket.close()
+            return
+        except Exception as e:
+            logger.error(f"Config receive error from {client_ip}: {e}")
+            await websocket.send_json({
+                "type": "error",
+                "message": f"Configuration error: {str(e)}"
+            })
+            await websocket.close()
+            return
 
         if config_data.get("type") != "config":
             await websocket.send_json({
@@ -1295,7 +1348,11 @@ async def websocket_transcribe(websocket: WebSocket):
 
                 elif "text" in message:
                     # JSON control message
-                    data = json.loads(message["text"])
+                    try:
+                        data = json.loads(message["text"])
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Invalid JSON message: {e}")
+                        continue
 
                     if data.get("type") == "end":
                         # Client signaled end of stream
@@ -1310,78 +1367,112 @@ async def websocket_transcribe(websocket: WebSocket):
                 # Send ping to check connection
                 try:
                     await websocket.send_json({"type": "ping"})
-                except:
+                except Exception:
+                    logger.warning(f"Ping failed, closing connection from {client_ip}")
                     break
+            except WebSocketDisconnect:
+                logger.info(f"Client disconnected during streaming from {client_ip}")
+                connection_closed = True
+                break
+            except Exception as e:
+                logger.error(f"Error processing audio chunk: {e}")
+                # Continue processing, don't break on single chunk error
+                continue
 
         # Finalize transcription - process any remaining audio even if short
-        logger.info(f"Finalizing transcription. Buffer duration: {transcriber.get_buffer_duration():.2f}s, New audio: {transcriber.get_new_audio_duration():.2f}s")
-        final_result = transcriber.finalize()
-
-        # Final polish
-        if enable_polish and transcriber.full_transcript:
+        if transcriber:
             try:
-                final_polished = await transcriber.polish_text_async(transcriber.full_transcript)
-                if final_polished:
-                    transcriber.polished_transcript = final_polished
-                    final_result["polished_transcript"] = final_polished
+                logger.info(f"Finalizing transcription. Buffer duration: {transcriber.get_buffer_duration():.2f}s, New audio: {transcriber.get_new_audio_duration():.2f}s")
+                final_result = transcriber.finalize()
             except Exception as e:
-                logger.warning(f"Final polish error: {e}")
+                logger.error(f"Finalization error: {e}")
+                final_result = {
+                    "full_transcript": transcriber.full_transcript if transcriber else "",
+                    "total_duration": "0s",
+                    "language": "unknown"
+                }
 
-        # Save audio and transcription if we have content
-        if transcriber.full_transcript.strip():
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Final polish
+            if enable_polish and transcriber.full_transcript:
+                try:
+                    final_polished = await transcriber.polish_text_async(transcriber.full_transcript)
+                    if final_polished:
+                        transcriber.polished_transcript = final_polished
+                        final_result["polished_transcript"] = final_polished
+                except Exception as e:
+                    logger.warning(f"Final polish error: {e}")
 
-            # Combine all audio chunks and save
-            if all_audio_chunks:
-                combined_audio = b''.join(all_audio_chunks)
-                audio_filename = f"{timestamp}_streaming.wav"
-                audio_path = Config.RECORDED_AUDIO_DIR / audio_filename
+            # Save audio and transcription if we have content
+            if transcriber.full_transcript.strip():
+                try:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-                # Convert to proper WAV file
-                audio_array = np.frombuffer(combined_audio, dtype=np.int16).astype(np.float32) / 32768.0
-                if sample_rate != 16000:
-                    from scipy import signal
-                    num_samples = int(len(audio_array) * 16000 / sample_rate)
-                    audio_array = signal.resample(audio_array, num_samples)
-                sf.write(str(audio_path), audio_array, 16000)
+                    # Combine all audio chunks and save
+                    if all_audio_chunks:
+                        combined_audio = b''.join(all_audio_chunks)
+                        audio_filename = f"{timestamp}_streaming.wav"
+                        audio_path = Config.RECORDED_AUDIO_DIR / audio_filename
 
-                # Save transcription
-                save_transcription(
-                    transcriber.full_transcript,
-                    "streaming.wav",
-                    final_result.get("language", "unknown"),
-                    final_result.get("total_duration", "0s"),
-                    transcriber.segments,
-                    timestamp,
-                    client_ip
-                )
+                        # Convert to proper WAV file
+                        audio_array = np.frombuffer(combined_audio, dtype=np.int16).astype(np.float32) / 32768.0
+                        if sample_rate != 16000:
+                            try:
+                                from scipy import signal
+                                num_samples = int(len(audio_array) * 16000 / sample_rate)
+                                audio_array = signal.resample(audio_array, num_samples)
+                            except ImportError:
+                                logger.warning("scipy not available, saving at original sample rate")
+                        sf.write(str(audio_path), audio_array, 16000)
 
-        # Send final result
-        await websocket.send_json({
-            "type": "final",
-            **final_result
-        })
+                        # Save transcription
+                        save_transcription(
+                            transcriber.full_transcript,
+                            "streaming.wav",
+                            final_result.get("language", "unknown"),
+                            final_result.get("total_duration", "0s"),
+                            transcriber.segments,
+                            timestamp,
+                            client_ip
+                        )
+                except Exception as e:
+                    logger.error(f"Error saving audio/transcription: {e}")
 
-        logger.info(f"WebSocket transcription completed for {client_ip}")
+            # Send final result
+            try:
+                await websocket.send_json({
+                    "type": "final",
+                    **final_result
+                })
+            except Exception as e:
+                logger.error(f"Error sending final result: {e}")
+
+            logger.info(f"WebSocket transcription completed for {client_ip}")
+        else:
+            logger.warning(f"No transcriber initialized for {client_ip}")
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected from {client_ip}")
     except Exception as e:
-        logger.error(f"WebSocket error: {str(e)}")
+        import traceback
+        logger.error(f"WebSocket error from {client_ip}: {str(e)}")
+        logger.error(traceback.format_exc())
         try:
             await websocket.send_json({
                 "type": "error",
-                "message": str(e)
+                "message": f"Server error: {str(e)}"
             })
-        except:
-            pass
+        except Exception:
+            logger.error("Failed to send error message to client")
     finally:
         # Cleanup
-        if transcriber:
-            del transcriber
-        if DEVICE == "cuda":
-            torch.cuda.empty_cache()
-        gc.collect()
+        try:
+            if transcriber:
+                del transcriber
+            if DEVICE == "cuda":
+                torch.cuda.empty_cache()
+            gc.collect()
+        except Exception as cleanup_error:
+            logger.error(f"Cleanup error: {cleanup_error}")
 
 
 if __name__ == "__main__":

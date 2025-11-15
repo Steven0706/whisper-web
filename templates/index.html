@@ -1284,9 +1284,11 @@
                 // Connect WebSocket
                 const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const wsUrl = `${wsProtocol}//${window.location.host}/ws/transcribe`;
+                console.log('Connecting to WebSocket:', wsUrl);
                 streamingWebSocket = new WebSocket(wsUrl);
 
                 streamingWebSocket.onopen = () => {
+                    console.log('WebSocket connection opened');
                     // Send configuration
                     streamingWebSocket.send(JSON.stringify({
                         type: 'config',
@@ -1304,12 +1306,16 @@
 
                 streamingWebSocket.onerror = (error) => {
                     console.error('WebSocket error:', error);
-                    showError('Streaming connection error');
+                    const wsUrl = `${wsProtocol}//${window.location.host}/ws/transcribe`;
+                    showError(`Streaming connection error to ${wsUrl}. Check console for details.`);
                     stopStreamingRecording();
                 };
 
-                streamingWebSocket.onclose = () => {
-                    console.log('WebSocket closed');
+                streamingWebSocket.onclose = (event) => {
+                    console.log('WebSocket closed:', event.code, event.reason);
+                    if (event.code !== 1000 && event.code !== 1001) {
+                        console.error('WebSocket closed abnormally:', event.code, event.reason);
+                    }
                     if (isRecording) {
                         stopStreamingRecording();
                     }
